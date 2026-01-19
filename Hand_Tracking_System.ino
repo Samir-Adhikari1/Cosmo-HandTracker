@@ -73,4 +73,8 @@ void loop() {
     inputString = "";
     stringComplete = false;
   }
+
 }
+
+
+// Sorry!, this is the most basic code and working for the Hand Tracking System.(If you want any upgardes you can mail me!)
