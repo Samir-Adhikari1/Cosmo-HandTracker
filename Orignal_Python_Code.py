@@ -10,7 +10,6 @@ import json
 import logging
 import os
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class Config:
@@ -21,14 +20,13 @@ class Config:
         self.SEND_INTERVAL = 5
         self.SMOOTHING_FACTOR = 0.8
         self.GESTURE_CONFIDENCE_THRESHOLD = 0.7
-        self.ENABLE_OFFENSIVE_GESTURES = False  # Set to True to include offensive gestures
-        self.FRAME_SKIP_THRESHOLD = 20  # Skip frames if FPS below this
-        self.FRAME_SKIP_FACTOR = 2  # Process every Nth frame when skipping
-        self.HAND_LOST_TIMEOUT = 2.0  # Seconds to wait before resetting if hand is lost
+        self.ENABLE_OFFENSIVE_GESTURES = False  
+        self.FRAME_SKIP_THRESHOLD = 20 
+        self.FRAME_SKIP_FACTOR = 2 
+        self.HAND_LOST_TIMEOUT = 2.0  
 
 config = Config()
 
-# Load gestures from JSON or create default if not exists
 GESTURES_FILE = 'gestures.json'
 if os.path.exists(GESTURES_FILE):
     with open(GESTURES_FILE, 'r') as f:
@@ -37,7 +35,6 @@ if os.path.exists(GESTURES_FILE):
     THRESHOLDS = gestures_data['thresholds']
 else:
     logging.warning(f"Gestures file '{GESTURES_FILE}' not found. Creating default gestures file.")
-    # Default gestures and thresholds
     GESTURES = {
         "Fist": {"condition": "extended_count == 0 and not thumb_ext", "confidence": 0.9, "offensive": False},
         "Open Hand": {"condition": "extended_count == 4 and thumb_ext", "confidence": 0.9, "offensive": False},
@@ -52,19 +49,16 @@ else:
         "angle_validation_max": 180,
         "thumb_extension_threshold": 0.02
     }
-    # Save to file
     default_data = {"gestures": GESTURES, "thresholds": THRESHOLDS}
     with open(GESTURES_FILE, 'w') as f:
         json.dump(default_data, f, indent=4)
     logging.info(f"Default gestures file created at '{GESTURES_FILE}'.")
 
-# Initialize MediaPipe Hands with higher tracking confidence for stability
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(static_image_mode=False, max_num_hands=config.MAX_HANDS,
                        min_detection_confidence=0.5, min_tracking_confidence=0.5)
 mp_drawing = mp.solutions.drawing_utils
 
-# Predefined hand landmarks
 LANDMARKS = {
     'wrist': 0, 'thumb_cmc': 1, 'thumb_mcp': 2, 'thumb_ip': 3, 'thumb_tip': 4,
     'index_mcp': 5, 'index_pip': 6, 'index_dip': 7, 'index_tip': 8,
@@ -73,7 +67,6 @@ LANDMARKS = {
     'pinky_mcp': 17, 'pinky_pip': 18, 'pinky_dip': 19, 'pinky_tip': 20
 }
 
-# Joint definitions for 14 angles (optimized: calculate only when needed)
 joint_definitions = [
     (LANDMARKS['thumb_cmc'], LANDMARKS['thumb_mcp'], LANDMARKS['thumb_ip']),
     (LANDMARKS['thumb_mcp'], LANDMARKS['thumb_ip'], LANDMARKS['thumb_tip']),
@@ -118,12 +111,11 @@ class GestureRecognizer:
     def is_finger_extended(self, landmarks, finger_tip, finger_pip, finger_mcp, angles, is_right_hand=True):
         """Check if a finger is extended, using position and angle for thumb."""
         if finger_tip == LANDMARKS['thumb_tip']:
-            # Thumb: Use position + angle (from thumb_mcp angle) for reliability
             tip = landmarks[finger_tip]
             mcp = landmarks[finger_mcp]
             direction = 1 if is_right_hand else -1
             position_check = (tip.x - mcp.x) * direction > THRESHOLDS['thumb_extension_threshold']
-            angle_check = angles[0] > 30  # Thumb CMC-MCP-IP angle > 30° for extension
+            angle_check = angles[0] > 30  
             return position_check and angle_check
         else:
             return landmarks[finger_tip].y < landmarks[finger_pip].y
@@ -141,12 +133,10 @@ class GestureRecognizer:
         thumb_index_dist = math.sqrt((landmarks[LANDMARKS['thumb_tip']].x - landmarks[LANDMARKS['index_tip']].x)**2 +
                                      (landmarks[LANDMARKS['thumb_tip']].y - landmarks[LANDMARKS['index_tip']].y)**2)
 
-        # Evaluate gestures from JSON
         for name, data in GESTURES.items():
             if data.get('offensive', False) and not config.ENABLE_OFFENSIVE_GESTURES:
                 continue
             condition = data['condition']
-            # Safely evaluate condition (use eval with restricted globals for security)
             try:
                 if eval(condition, {"__builtins__": {}}, {
                     'extended_count': extended_count, 'thumb_ext': thumb_ext, 'index_ext': index_ext,
@@ -202,11 +192,11 @@ frame_count = 0
 prev_angles = None
 prev_time = time.time()
 skip_frame = False
-hand_last_seen = time.time()  # Track when hand was last detected
+hand_last_seen = time.time()  
 
 while True:
     if skip_frame:
-        cap.read()  # Skip frame
+        cap.read()  
         skip_frame = False
         continue
 
@@ -223,10 +213,10 @@ while True:
     prev_time = current_time
 
     if fps < config.FRAME_SKIP_THRESHOLD:
-        skip_frame = True  # Skip next frame for performance
+        skip_frame = True 
 
     if results.multi_hand_landmarks and results.multi_handedness:
-        hand_last_seen = current_time  # Reset timer
+        hand_last_seen = current_time  
         for hand_landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
             mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
             is_right_hand = handedness.classification[0].label == 'Right'
@@ -241,7 +231,7 @@ while True:
 
             angles = [max(0, min(180, a)) for a in angles]
             if not validate_angles(angles):
-                continue  # Skip if angles are invalid
+                continue  
 
             if prev_angles:
                 angles = [config.SMOOTHING_FACTOR * p + (1 - config.SMOOTHING_FACTOR) * c for p, c in zip(prev_angles, angles)]
@@ -266,12 +256,11 @@ while True:
                 data = ",".join(f"{a:.2f}" for a in angles) + "\n"
                 serial_queue.append(data)
     else:
-        # Check if hand has been lost for too long
         if current_time - hand_last_seen > config.HAND_LOST_TIMEOUT:
             logging.info("Hand lost for too long, resetting tracking.")
             hands = mp_hands.Hands(static_image_mode=False, max_num_hands=config.MAX_HANDS,
-                                   min_detection_confidence=0.5, min_tracking_confidence=0.5)  # Reinitialize
-            prev_angles = None  # Reset angles to avoid stale data
+                                   min_detection_confidence=0.5, min_tracking_confidence=0.5)  
+            prev_angles = None  
             hand_last_seen = current_time
         cv2.putText(frame, "No hand detected", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
@@ -284,4 +273,5 @@ while True:
 if arduino:
     arduino.close()
 cap.release()
+
 cv2.destroyAllWindows()
